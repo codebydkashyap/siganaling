@@ -16,7 +16,7 @@ export interface SignalMessage {
 }
 
 export function createSignalingServer(port: number): WebSocketServer {
-  const wss = new WebSocketServer({ port });
+  const wss = new WebSocketServer({ port, host: '0.0.0.0' });
   console.log(`[Signaling] Server listening on ws://0.0.0.0:${port}`);
 
   wss.on('connection', (ws: WebSocket, req) => {
@@ -125,16 +125,27 @@ export function createSignalingServer(port: number): WebSocketServer {
         case 'answer':
         case 'ice': {
           const targetId = msg.to;
-          if (!targetId || !clientDeviceId) return;
+          if (!targetId) return;
+
+          const senderId = msg.from || clientDeviceId;
+          if (!senderId) {
+             console.log(`[Signaling] Rejecting ${msg.type}: Sender not identified`);
+             return;
+          }
 
           const target = sessionRegistry.get(targetId);
           if (target?.readyState === WebSocket.OPEN) {
-            target.send(JSON.stringify({
-              type: msg.type,
-              from: clientDeviceId,
-              payload: msg.payload,
-            }));
+            try {
+              target.send(JSON.stringify({
+                ...msg,
+                from: senderId,
+              }));
+              console.log(`[Signaling] Relayed ${msg.type} from ${senderId} to ${targetId}`);
+            } catch (err) {
+              console.error(`[Signaling] Failed to relay ${msg.type} to ${targetId}:`, err);
+            }
           } else {
+            console.log(`[Signaling] Target ${targetId} not available for ${msg.type}`);
             ws.send(JSON.stringify({ type: 'error', message: `Peer ${targetId} not available` }));
           }
           break;
